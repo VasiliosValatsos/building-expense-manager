@@ -1,0 +1,38 @@
+# Local settings and Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.env.*
+config_paths.json
+config.json
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+build/
+dist/
+*.spec
+# Private working data: keep outside the repository whenever possible.
+private/
+user_data/
+backups/
+output/
+*.xlsx
+*.xlsm
+*.xls
+*.xlsb
+*.csv
+*.pdf
+~$*
+.bem-*
+# Allow only the intentionally published, exact blank templates and synthetic report.
+!/templates/ΚΟΙΝΟΧΡΗΣΤΑ.xlsx
+!/templates/ΒΙΒΛΙΟ ΕΣΟΔΩΝ_ΕΞΟΔΩΝ.xlsx
+!/examples/sample-output/sample-report.pdf

@@ -1,0 +1,3 @@
+-r requirements.txt
+# Optional executable packaging; build separately on each operating system.
+pyinstaller>=6,<7
