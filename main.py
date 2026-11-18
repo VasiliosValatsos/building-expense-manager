@@ -1,31 +1,28 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import hashlib
+import json
+import math
 import os
+import re
+import shutil
 import sys
+import tempfile
+import tkinter as tk
+from contextlib import ExitStack, contextmanager
+from copy import copy, deepcopy
 from datetime import datetime
-
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from fractions import Fraction
+from functools import lru_cache
+from math import gcd
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 from dateutil.relativedelta import relativedelta
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
-
-import tkinter as tk
-from tkinter import messagebox, ttk, filedialog
-
-import json
-import math
-import re
-import tempfile
-import shutil
-import hashlib
-from math import gcd
-from pathlib import Path
-from contextlib import ExitStack, contextmanager
-from copy import copy, deepcopy
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from fractions import Fraction
-from functools import lru_cache
 
 
 GREEK_MONTHS = {
@@ -44,7 +41,12 @@ GREEK_MONTHS = {
 }
 
 
-# One shared implementation; language affects presentation only.
+ENGLISH_MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+MONTH_NUMBERS = {month.lower(): index for index, month in enumerate(ENGLISH_MONTHS, 1)}
+
 LANGUAGE = "en"
 
 
@@ -61,23 +63,13 @@ def set_language(language):
     BILL_LABELS = tr({'Φ.Α.': 'Natural gas / heating', 'Ηλεκτ. ρεύμα κοινοχρήστων': 'Common-area electricity', 'ΕΥΔΑΠ': 'Water', 'Καθαρισμός κοιν/στων': 'Common-area cleaning', 'Αναλώσιμα': 'Consumables'}, {'Φ.Α.': 'Φυσικό αέριο / θέρμανση', 'Ηλεκτ. ρεύμα κοινοχρήστων': 'Κοινόχρηστο ηλεκτρικό ρεύμα', 'ΕΥΔΑΠ': 'Ύδρευση (ΕΥΔΑΠ)', 'Καθαρισμός κοιν/στων': 'Καθαρισμός κοινοχρήστων', 'Αναλώσιμα': 'Αναλώσιμα'})
     FLOOR_LABELS = tr({'ΥΠ2': 'Basement 2', 'ΥΠ1': 'Basement 1', 'ΙΣ': 'Ground', "Α' ΟΡ": 'First floor', "Β' ΟΡ": 'Second floor', "Γ' ΟΡ": 'Third floor'}, {'ΥΠ2': 'ΥΠ2', 'ΥΠ1': 'ΥΠ1', 'ΙΣ': 'ΙΣ', "Α' ΟΡ": "Α' ΟΡ", "Β' ΟΡ": "Β' ΟΡ", "Γ' ΟΡ": "Γ' ΟΡ"})
     EXPENSE_LABELS = tr({'urgent': 'Owner expense 1', 'urgent2': 'Owner expense 2', 'extra1': 'Tenant expense 1', 'extra2': 'Tenant expense 2'}, {'urgent': 'Δαπάνη ιδιοκτητών 1', 'urgent2': 'Δαπάνη ιδιοκτητών 2', 'extra1': 'Δαπάνη ενοικιαστών 1', 'extra2': 'Δαπάνη ενοικιαστών 2'})
-    DISPLAY_MONTHS = tr(['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'], list(GREEK_MONTHS.values()))
+    DISPLAY_MONTHS = tr(list(ENGLISH_MONTHS), list(GREEK_MONTHS.values()))
 
 
 set_language("en")
 
-BILL_DESCRIPTIONS_TO_CLEAR = ("A6", "A7", "E9", "E10")
-
-# Cells in the accounting workbook that must be cleared for a new month.
-CELLS_TO_CLEAR_2 = [
-    "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23",
-    "L8", "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L17", "L18", "L19", "L20",
-    "K13", "K14", "K15", "K17", "K18", "K19", "K20"
-]
-
-
 def get_app_data_path():
-    """Per-user writable settings; works for source and frozen executables."""
+    """Return the per-user settings path for source and packaged builds."""
     if sys.platform == "win32":
         folder = os.environ.get("APPDATA") or os.path.join(Path.home(), "AppData", "Roaming")
         base = Path(folder) / "BuildingExpenseManager"
@@ -106,25 +98,30 @@ ADDITIONAL_BILLS = {
     "extra1": ("E9", "G9", "K13", "L13"),
     "extra2": ("E10", "G10", "K14", "L14"),
 }
-EXPENSE_PAIRS = [*STANDARD_BILLS.values(), *((v[1], v[3]) for v in ADDITIONAL_BILLS.values()), ("D8", "L16")]
+MANAGEMENT_FEE_CELLS = ("D8", "L16")
+EXPENSE_PAIRS = [
+    *STANDARD_BILLS.values(),
+    *((charge, cash) for _, charge, _, cash in ADDITIONAL_BILLS.values()),
+    MANAGEMENT_FEE_CELLS,
+]
 AREA_SCALE = 100_000
 HEATING_SCALE = 10_000
 EXACT_EXCEL_INTEGER = 999_999_999_999_999
 
 
-def month_sheet_name(date):
-    return f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.month - 1]} {date.year}"
+def month_sheet_name(date: datetime) -> str:
+    return f"{ENGLISH_MONTHS[date.month - 1]} {date.year}"
 
 
-def parse_month_sheet(name):
-    """Independent of the operating system locale."""
-    months = {m.lower(): i for i, m in enumerate(
-        ["January", "February", "March", "April", "May", "June",
-         "July", "August", "September", "October", "November", "December"], 1)}
+def parse_month_sheet(name: str) -> datetime:
+    """Parse the English month name even when the app runs in Greek."""
     match = re.fullmatch(r"([A-Za-z]+) ([0-9]{4})", name.strip())
-    if not match or match.group(1).lower() not in months:
-        raise ValueError(tr(f"Invalid sheet name format: {name!r}; expected 'January 2026'", f"Μη έγκυρο όνομα φύλλου: {name!r}; αναμένεται 'January 2026'"))
-    return datetime(int(match.group(2)), months[match.group(1).lower()], 1)
+    if not match or match.group(1).lower() not in MONTH_NUMBERS:
+        raise ValueError(tr(
+            f"Invalid sheet name format: {name!r}; expected 'January 2026'",
+            f"Μη έγκυρο όνομα φύλλου: {name!r}; αναμένεται 'January 2026'",
+        ))
+    return datetime(int(match.group(2)), MONTH_NUMBERS[match.group(1).lower()], 1)
 
 
 def to_float(value, *, blank_zero=True):
@@ -132,7 +129,7 @@ def to_float(value, *, blank_zero=True):
     if value is None or (isinstance(value, str) and not value.strip()):
         if blank_zero:
             return 0.0
-        raise ValueError(tr('A numeric value is required', 'Απαιτείται αριθμητική τιμή'))
+        raise ValueError(tr('Enter a number.', 'Συμπληρώστε έναν αριθμό.'))
     if isinstance(value, bool):
         raise ValueError(tr('Boolean is not a numeric value', 'Η λογική τιμή δεν είναι αριθμός'))
     try:
@@ -150,7 +147,7 @@ def decimal_number(value):
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(tr(f"Invalid number: {value!r}", f"Μη έγκυρος αριθμός: {value!r}")) from exc
     if not number.is_finite():
-        raise ValueError(tr("A finite number is required.", "Απαιτείται πεπερασμένος αριθμός."))
+        raise ValueError(tr("Enter a finite number.", "Ο αριθμός πρέπει να είναι πεπερασμένος."))
     return number
 
 
@@ -159,7 +156,7 @@ def money_cents(value, *, blank_zero=False, calculated=False):
         return 0
     amount = decimal_number(value)
     if abs(amount) > 9_999_999_999_999:
-        raise ValueError(tr("Amount exceeds Excel's cent precision.", "Το ποσό υπερβαίνει την ακρίβεια λεπτού του Excel."))
+        raise ValueError(tr("This amount is too large for Excel to keep cent precision.", "Το ποσό είναι πολύ μεγάλο για να το αποθηκεύσει το Excel με ακρίβεια λεπτού."))
     rounded = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     if not calculated and amount != rounded:
         raise ValueError(tr("Use up to two decimal places for amounts.", "Για ποσά χρησιμοποιήστε έως δύο δεκαδικά ψηφία."))
@@ -174,11 +171,11 @@ def allocate_cents(amount, weights):
     weights = [Fraction(weight) for weight in weights]
     total = sum(weights)
     if amount < 0 or any(weight < 0 for weight in weights):
-        raise ValueError(tr("Negative allocation input.", "Αρνητική τιμή επιμερισμού."))
+        raise ValueError(tr("Expense amounts and allocation weights must be zero or positive.", "Τα ποσά και οι συντελεστές επιμερισμού πρέπει να είναι μηδέν ή θετικοί."))
     if not amount:
         return [0] * len(weights)
     if not total:
-        raise ValueError(tr("No eligible apartments for this expense.", "Δεν υπάρχουν επιλέξιμες ιδιοκτησίες για αυτή τη δαπάνη."))
+        raise ValueError(tr("No eligible apartments for this expense.", "Καμία ιδιοκτησία δεν συμμετέχει σε αυτή τη δαπάνη."))
     quotas = [divmod(amount * weight, total) for weight in weights]
     whole = [int(part) for part, _ in quotas]
     eligible = sorted(
@@ -192,7 +189,7 @@ def allocate_cents(amount, weights):
 
 @contextmanager
 def excel_app():
-    """Use locally installed desktop Microsoft Excel. Never save opened source files."""
+    """Open a desktop Excel session for recalculation or export."""
     try:
         import xlwings as xw
     except ImportError as exc:
@@ -255,8 +252,8 @@ def reconcile_expenses(path, common, path2, ledger, *, detailed, expected_alloca
         delta = money_cents(left - right, calculated=True)
         if delta:
             raise ValueError(tr(
-                f"{common.name} / {context}: discrepancy EUR {euros(delta):+.2f}. Review the issued month.",
-                f"{common.name} / {context}: διαφορά EUR {euros(delta):+.2f}. Ελέγξτε τον εκδομένο μήνα.",
+                f"{common.name} / {context}: discrepancy EUR {euros(delta):+.2f}. Check the amounts for this month.",
+                f"{common.name} / {context}: διαφορά EUR {euros(delta):+.2f}. Ελέγξτε τα ποσά του μήνα.",
             ))
 
     def c(cell):
@@ -372,7 +369,7 @@ def calculated_closing_cash(path, sheet):
 
 
 def verify_calculated_total(path, sheet, address, actual, expected):
-    # Legacy totals can contain fractions of a cent; reconcile both sides at cent precision.
+    # Older workbooks can contain fractions of a cent. Compare rounded totals.
     if abs(actual - expected) > Decimal("0.0000001") and money_cents(actual, calculated=True) != money_cents(expected, calculated=True):
         raise ValueError(tr(
             f"{Path(path).name} / {sheet.name}!{address}: the calculated total does not reconcile.",
@@ -440,8 +437,8 @@ def apartment_weights(sheet):
 def validate_balance_transition(previous_owner, next_owner, tenant, owner):
     if normalize_name(previous_owner) != normalize_name(next_owner) and (tenant or owner):
         raise ValueError(tr(
-            "Settle or explicitly reconcile both balances before removing or changing the owner.",
-            "Τακτοποιήστε ή συμφωνήστε ρητά και τα δύο υπόλοιπα πριν από αφαίρεση ή αλλαγή ιδιοκτήτη.",
+            "Before removing or changing the owner, settle both balances or record how they were reconciled.",
+            "Πριν αφαιρέσετε ή αλλάξετε τον ιδιοκτήτη, τακτοποιήστε και τα δύο υπόλοιπα ή καταγράψτε πώς τα συμφωνήσατε.",
         ))
 
 
@@ -456,10 +453,10 @@ def confirm_legacy_rounding(balances):
     return messagebox.askyesno(
         tr("Legacy balance rounding", "Στρογγυλοποίηση παλαιών υπολοίπων"),
         tr(
-            "These previous totals differ after rounding the tenant and owner balances separately. "
+            "Rounding the tenant and owner balances separately changes the totals below. "
             "Continue using the two rounded balances?\n\n",
-            "Τα παρακάτω σύνολα διαφέρουν μετά τη χωριστή στρογγυλοποίηση υπολοίπων ενοικιαστή και ιδιοκτήτη. "
-            "Να χρησιμοποιηθούν τα δύο στρογγυλοποιημένα υπόλοιπα;\n\n",
+            "Αν στρογγυλοποιηθούν χωριστά τα υπόλοιπα ενοικιαστή και ιδιοκτήτη, αλλάζουν τα παρακάτω σύνολα. "
+            "Θέλετε να συνεχίσετε με τα στρογγυλοποιημένα υπόλοιπα;\n\n",
         ) + "\n".join(discrepancies), default="no",
     )
 
@@ -545,8 +542,8 @@ def check_recovery(paths):
     if markers:
         candidates = sorted({str(item) for path in paths for item in path.parent.glob(".bem-*")})
         raise ValueError(tr(
-            "A workbook is being updated or an incomplete operation needs recovery. Close Excel and check for an active application. Preserve both originals and all listed files. Inspect the transaction record and confirm the recovery choice before replacing or removing anything.",
-            "Ένα βιβλίο ενημερώνεται ή υπάρχει εκκρεμής ανάκτηση. Κλείστε το Excel και ελέγξτε αν εκτελείται η εφαρμογή. Φυλάξτε τα αρχικά και όλα τα αρχεία της λίστας. Ελέγξτε το αρχείο συναλλαγής και επιβεβαιώστε την επιλογή ανάκτησης πριν αντικαταστήσετε ή αφαιρέσετε οτιδήποτε.",
+            "A workbook is being updated or an incomplete operation needs recovery. Close Excel and check whether another copy of the app is running. Keep both original workbooks and every file listed below. Check the transaction record before you decide which files to restore or remove.",
+            "Γίνεται ενημέρωση βιβλίου ή χρειάζεται επαναφορά μετά από διακοπή. Κλείστε το Excel και ελέγξτε αν είναι ανοιχτό άλλο παράθυρο της εφαρμογής. Κρατήστε τα δύο αρχικά βιβλία και όλα τα αρχεία της λίστας. Δείτε το αρχείο συναλλαγής πριν αποφασίσετε ποια αρχεία θα επαναφέρετε ή θα αφαιρέσετε.",
         ) + "\n" + "\n".join([*(str(path) for path in paths), *candidates, *entries]))
 
 
@@ -554,7 +551,7 @@ def cleanup_file(path, warnings):
     try:
         path.unlink(missing_ok=True)
     except OSError as exc:
-        warnings.append(tr(f"Cleanup could not remove {path}: {exc}", f"Ο καθαρισμός δεν μπόρεσε να αφαιρέσει το {path}: {exc}"))
+        warnings.append(tr(f"Could not remove {path} after the operation: {exc}", f"Το {path} έμεινε στον φάκελο μετά την εργασία: {exc}"))
 
 
 def error_details(exc):
@@ -608,8 +605,8 @@ def save_workbooks_safely(wb, path, wb2, path2, *, revisions=None, delete_pdf=No
                 after_commit()
             except (Exception, KeyboardInterrupt) as exc:
                 warnings.append(tr(
-                    "Financial records were saved. PDF export failed. Open the saved common-expenses month in Excel and export A1:P31 to PDF. Do not re-enter payments.\n",
-                    "Οι οικονομικές εγγραφές αποθηκεύτηκαν. Η εξαγωγή PDF απέτυχε. Ανοίξτε τον αποθηκευμένο μήνα κοινοχρήστων στο Excel και εξαγάγετε τα A1:P31. Μην καταχωρίσετε ξανά πληρωμές.\n",
+                    "Financial records were saved. PDF export failed. Open the saved monthly sheet in the common expenses workbook and export A1:P31 to PDF. Do not re-enter payments.\n",
+                    "Οι οικονομικές εγγραφές αποθηκεύτηκαν. Η εξαγωγή PDF απέτυχε. Ανοίξτε στο Excel το αποθηκευμένο φύλλο του μήνα στα κοινόχρηστα και εξαγάγετε την περιοχή A1:P31 σε PDF. Μην καταχωρίσετε ξανά πληρωμές.\n",
                 ) + error_details(exc))
     return warnings
 
@@ -700,7 +697,7 @@ def save_locked_workbooks(workbooks, paths, revisions, warnings, delete_pdf, bef
 
 
 def validate_template_layout(wb, wb2):
-    """Ensure both workbooks match the 15-apartment templates this app supports."""
+    """Check the layout and reserved cells of the 15-apartment templates."""
     common = wb[wb.sheetnames[-1]]
     ledger = wb2[wb2.sheetnames[-1]]
     if [common[f"A{row}"].value for row in APARTMENT_ROWS] != list(range(1, 16)):
@@ -803,45 +800,70 @@ def hide_working_columns(sheet, first, last):
 
 
 def set_expense_formulas(sheet, allocations=None, *, legacy=False):
-    """Write the standalone formulas or point them at calculated monthly cents."""
+    """Write the weight, allocation and report cells for the common workbook."""
     fix_heating_formulas(sheet, legacy=legacy)
     hide_working_columns(sheet, 23, 70)
     allocations = allocations if allocations is not None else {}
     result_columns = {}
     for index, address in enumerate(OWNER_EXPENSES + TENANT_EXPENSES):
-        quota, whole, result = [get_column_letter(23 + index * 3 + col) for col in range(3)]
+        first_column = 23 + index * 3
+        quota, whole, result = (get_column_letter(first_column + offset) for offset in range(3))
         result_columns[address] = result
         sheet[f"{result}13"] = address
-        weight_col, denominator = ("C", "$I$54") if address == "G4" else ("B", "$F$54")
-        cell = f"${address[0]}${address[1:]}"
-        amount = f'IF({cell}="",0,IF(AND(ISNUMBER({cell}),{cell}>=0,ROUND({cell},2)={cell}),ROUND({cell}*100,0),NA()))'
-        qr, wr = f"${quota}$14:${quota}$28", f"${whole}$14:${whole}$28"
-        for row in APARTMENT_ROWS:
-            weight = f"${weight_col}${row + 22}"
-            if address in allocations:
+        if address in allocations:
+            for row in APARTMENT_ROWS:
                 sheet[f"{quota}{row}"] = None
                 sheet[f"{whole}{row}"] = None
                 sheet[f"{result}{row}"] = allocations[address][row - APARTMENT_ROWS.start]
-                continue
-            qp, wp = f"${quota}$14:{quota}{row}", f"${whole}$14:{whole}{row}"
-            if legacy:
-                sheet[f"{quota}{row}"] = f'=IF({amount}=0,0,IF({denominator}>0,{amount}*{weight}/{denominator},NA()))'
-                sheet[f"{whole}{row}"] = f"=INT({quota}{row})"
-                remainder = f"ROUND({quota}{row}-{whole}{row},12)"
-                all_remainders, prefix = f"ROUND({qr}-{wr},12)", f"ROUND({qp}-{wp},12)"
-            else:
-                weights = f"${weight_col}$36:${weight_col}$50"
-                divisor = f"MAX(1,GCD({weights}))"
-                total = f"SUMPRODUCT({weights}/{divisor})"
-                product = f"({amount}*({weight}/{divisor}))"
-                sheet[f"{quota}{row}"] = f'=IF({amount}=0,0,IF(AND({total}>0,{total}<={EXACT_EXCEL_INTEGER},{product}<={EXACT_EXCEL_INTEGER}),{product},NA()))'
-                sheet[f"{whole}{row}"] = f"=IF({quota}{row}=0,0,QUOTIENT({quota}{row},{total}))"
-                remainder = f"({quota}{row}-{whole}{row}*{total})"
-                all_remainders, prefix = f"({qr}-{wr}*{total})", f"({qp}-{wp}*{total})"
-            rank = f"SUMPRODUCT(--({all_remainders}>{remainder}))+SUMPRODUCT(--({prefix}={remainder}),--({qp}>0))"
-            sheet[f"{result}{row}"] = (
-                f"={whole}{row}+IF({quota}{row}>0,--(({rank})<={amount}-SUM({wr})),0)"
+        else:
+            write_template_allocation(sheet, address, quota, whole, result, legacy=legacy)
+    write_expense_report(sheet, result_columns, legacy=legacy)
+
+
+def write_template_allocation(sheet, address, quota, whole, result, *, legacy):
+    # Legacy formulas are also used to recognize previously generated sheets.
+    weight_col, denominator = ("C", "$I$54") if address == "G4" else ("B", "$F$54")
+    cell = f"${address[0]}${address[1:]}"
+    amount = (
+        f'IF({cell}="",0,IF(AND(ISNUMBER({cell}),{cell}>=0,ROUND({cell},2)={cell}),'
+        f'ROUND({cell}*100,0),NA()))'
+    )
+    quota_range = f"${quota}$14:${quota}$28"
+    whole_range = f"${whole}$14:${whole}$28"
+    for row in APARTMENT_ROWS:
+        weight = f"${weight_col}${row + 22}"
+        quotas_through_row = f"${quota}$14:{quota}{row}"
+        wholes_through_row = f"${whole}$14:{whole}{row}"
+        if legacy:
+            sheet[f"{quota}{row}"] = f'=IF({amount}=0,0,IF({denominator}>0,{amount}*{weight}/{denominator},NA()))'
+            sheet[f"{whole}{row}"] = f"=INT({quota}{row})"
+            remainder = f"ROUND({quota}{row}-{whole}{row},12)"
+            all_remainders = f"ROUND({quota_range}-{whole_range},12)"
+            remainders_through_row = f"ROUND({quotas_through_row}-{wholes_through_row},12)"
+        else:
+            weights = f"${weight_col}$36:${weight_col}$50"
+            divisor = f"MAX(1,GCD({weights}))"
+            total = f"SUMPRODUCT({weights}/{divisor})"
+            product = f"({amount}*({weight}/{divisor}))"
+            sheet[f"{quota}{row}"] = (
+                f"=IF({amount}=0,0,IF(AND({total}>0,{total}<={EXACT_EXCEL_INTEGER},"
+                f"{product}<={EXACT_EXCEL_INTEGER}),{product},NA()))"
             )
+            sheet[f"{whole}{row}"] = f"=IF({quota}{row}=0,0,QUOTIENT({quota}{row},{total}))"
+            remainder = f"({quota}{row}-{whole}{row}*{total})"
+            all_remainders = f"({quota_range}-{whole_range}*{total})"
+            remainders_through_row = f"({quotas_through_row}-{wholes_through_row}*{total})"
+        # Count larger remainders and ties up to this apartment's row.
+        rank = (
+            f"SUMPRODUCT(--({all_remainders}>{remainder}))"
+            f"+SUMPRODUCT(--({remainders_through_row}={remainder}),--({quotas_through_row}>0))"
+        )
+        sheet[f"{result}{row}"] = (
+            f"={whole}{row}+IF({quota}{row}>0,--(({rank})<={amount}-SUM({whole_range})),0)"
+        )
+
+
+def write_expense_report(sheet, result_columns, *, legacy):
     for row in APARTMENT_ROWS:
         def category_total(addresses):
             return "SUM(" + ",".join(f"{result_columns[address]}{row}" for address in addresses) + ")/100"
@@ -922,7 +944,7 @@ def monthly_allocations(sheet, standard):
 
 
 def create_month_sheets(wb, wb2, previous_name, *, opening_cash):
-    """Prepare the next month only in memory; caller decides whether to commit."""
+    """Prepare both worksheets without saving the workbooks."""
     opening = euros(opening_cash)
     money_cents(opening)
     previous_ledger = wb2[previous_name]
@@ -935,22 +957,24 @@ def create_month_sheets(wb, wb2, previous_name, *, opening_cash):
     common = wb.copy_worksheet(wb[previous_name])
     common.title = new_name
     common.conditional_formatting = deepcopy(wb[previous_name].conditional_formatting)
-    for address in BILL_DESCRIPTIONS_TO_CLEAR:
-        common[address] = None
+    for description, _, _, _ in ADDITIONAL_BILLS.values():
+        common[description] = None
     for address in OWNER_EXPENSES + TENANT_EXPENSES:
-        if address != "D8":
+        if address != MANAGEMENT_FEE_CELLS[0]:
             common[address] = None
 
     ledger = wb2.copy_worksheet(previous_ledger)
     ledger.title = new_name
     ledger.conditional_formatting = deepcopy(wb2[previous_name].conditional_formatting)
-    for address in CELLS_TO_CLEAR_2:
-        ledger[address] = None
     for row in range(9, 24):
         ledger[f"D{row}"] = None
+        ledger[f"F{row}"] = None
     for row in range(8, 21):
         ledger[f"J{row}"] = None
-    ledger["L16"] = None
+        ledger[f"L{row}"] = None
+    # Older ledgers also use these rows for extra expense descriptions.
+    for row in (*range(13, 16), *range(17, 21)):
+        ledger[f"K{row}"] = None
     ledger["K16"] = "Αμοιβή διαχείρισης"
     ledger["F8"] = opening
     ledger["F31"] = "=ROUND(SUM(F8:F23),2)"
@@ -1039,11 +1063,11 @@ def collect_first_time_setup():
         dialog = tk.Toplevel()
         dialog.title(tr('First-time setup', 'Αρχική ρύθμιση'))
 
-        tk.Label(dialog, text=tr('Enter available management balance:', 'Διαθέσιμο υπόλοιπο διαχείρισης:')).pack(pady=5)
+        tk.Label(dialog, text=tr('Opening cash balance:', 'Αρχικό υπόλοιπο ταμείου:')).pack(pady=5)
         entry1 = tk.Entry(dialog)
         entry1.pack(pady=5)
 
-        tk.Label(dialog, text=tr('Street Name and Number:', 'Οδός και αριθμός:')).pack(pady=5)
+        tk.Label(dialog, text=tr('Street and number:', 'Οδός και αριθμός:')).pack(pady=5)
         entry2 = tk.Entry(dialog)
         entry2.pack(pady=5)
 
@@ -1053,7 +1077,7 @@ def collect_first_time_setup():
         month_cb.current(0)
         month_cb.pack(pady=5)
 
-        tk.Label(dialog, text=tr('Select Year:', 'Επιλέξτε έτος:')).pack(pady=5)
+        tk.Label(dialog, text=tr('Year:', 'Έτος:')).pack(pady=5)
         current_year = datetime.now().year
         years = [str(y) for y in range(current_year - 5, current_year + 6)]
         year_cb = ttk.Combobox(dialog, values=years, state="readonly")
@@ -1149,19 +1173,19 @@ def launch_delete_last_month(path, path2):
 
 def launch_welcome_dashboard():
     root = tk.Tk()
-    root.title(tr('Shared Debt Management', 'Διαχείριση Κοινοχρήστων'))
+    root.title(tr('Building Expense Manager', 'Διαχείριση κοινοχρήστων'))
     root.geometry("560x480")
 
     title = tk.Label(
         root,
-        text=tr('Shared Debt Management', 'Διαχείριση Κοινοχρήστων'),
+        text=tr('Building Expense Manager', 'Διαχείριση κοινοχρήστων'),
         font=("Helvetica", 20, "bold"),
     )
     title.pack(pady=40)
 
     subtitle = tk.Label(
         root,
-        text=tr('Monthly Utilities Automation System', 'Μηνιαία αυτοματοποίηση κοινοχρήστων'),
+        text=tr('Monthly expenses and payments', 'Μηνιαίες δαπάνες και πληρωμές'),
         font=("Helvetica", 12),
     )
     subtitle.pack(pady=10)
@@ -1187,9 +1211,9 @@ def launch_welcome_dashboard():
     btn_frame = tk.Frame(root)
     btn_frame.pack(pady=12)
 
-    tk.Button(btn_frame, text=tr('Start Program', 'Έναρξη προγράμματος'), width=20, command=start).pack(pady=10)
-    tk.Button(btn_frame, text=tr('Edit Data', 'Επεξεργασία στοιχείων'), width=24, command=edit).pack(pady=10)
-    tk.Button(btn_frame, text=tr('Delete last month', 'Διαγραφή τελευταίου φύλλου'), width=28, command=delete).pack(pady=10)
+    tk.Button(btn_frame, text=tr('Start next month', 'Έναρξη νέου μήνα'), width=20, command=start).pack(pady=10)
+    tk.Button(btn_frame, text=tr('Edit apartment details', 'Επεξεργασία στοιχείων'), width=24, command=edit).pack(pady=10)
+    tk.Button(btn_frame, text=tr('Delete last month', 'Διαγραφή τελευταίου μήνα'), width=28, command=delete).pack(pady=10)
 
     ttk.Button(btn_frame, text="Language / Γλώσσα", command=change_language, width=28).pack(pady=10)
 
@@ -1202,10 +1226,15 @@ def launch_welcome_dashboard():
     return choice["action"]
 
 
+def apartment_cells(row: int, *, pending: bool) -> list[str]:
+    if pending:
+        return [f"{col}{row}" for col in PENDING_COLUMNS]
+    return [f"{col}{row}" for col in "BCDE"] + [f"H{row + 22}"]
+
+
 def property_values(sheet, row):
-    if sheet["DF1"].value == "NEXT_MONTH":
-        return [sheet[f"{col}{row}"].value for col in PENDING_COLUMNS]
-    return [sheet[f"{col}{row}"].value for col in "BCDE"] + [sheet[f"H{row + 22}"].value]
+    pending = sheet["DF1"].value == "NEXT_MONTH"
+    return [sheet[address].value for address in apartment_cells(row, pending=pending)]
 
 
 def management_fee_value(sheet):
@@ -1220,12 +1249,9 @@ def write_properties(common, ledger, properties, fee, *, pending=False):
     else:
         common["D8"] = euros(fee)
     for row, (floor, area, tenant, owner, factor) in zip(APARTMENT_ROWS, properties):
-        if pending:
-            addresses = [f"{col}{row}" for col in PENDING_COLUMNS]
-        else:
-            addresses = [f"{col}{row}" for col in "BCDE"] + [f"H{row + 22}"]
+        if not pending:
             literal_text(ledger, f"E{row - 5}", owner)
-        floor_cell, area_cell, tenant_cell, owner_cell, factor_cell = addresses
+        floor_cell, area_cell, tenant_cell, owner_cell, factor_cell = apartment_cells(row, pending=pending)
         literal_text(common, floor_cell, floor)
         common[area_cell] = area
         literal_text(common, tenant_cell, tenant)
@@ -1243,15 +1269,15 @@ def apply_pending_properties(common, ledger, balances):
     if common["DF1"].value == "NEXT_MONTH":
         write_properties(common, ledger, properties, money_cents(management_fee_value(common)))
         for row in APARTMENT_ROWS:
-            for col in PENDING_COLUMNS:
-                common[f"{col}{row}"] = None
+            for address in apartment_cells(row, pending=True):
+                common[address] = None
         common["DF1"] = None
         common["DF2"] = None
 
 
 def launch_edit_dashboard(ws, save_properties, *, initial=False):
     root = tk.Tk()
-    root.title(tr('Edit Data', 'Επεξεργασία στοιχείων'))
+    root.title(tr('Edit apartment details', 'Επεξεργασία στοιχείων'))
     root.geometry(tr('820x650', '920x690'))
 
     entries = []
@@ -1293,7 +1319,7 @@ def launch_edit_dashboard(ws, save_properties, *, initial=False):
             "Οι αλλαγές ισχύουν από τον επόμενο μήνα.",
         )).pack()
 
-    tk.Label(root, text=tr('Heating: 0 = 0% | 0.25 = 25% | 1 or blank = 100%', 'Θέρμανση: 0 = 0% | 0,25 = 25% | 1 ή κενό = 100%'),
+    tk.Label(root, text=tr('Heating weight: 0 exempt, 0.25 quarter weight, 1 or blank full weight', 'Βάρος θέρμανσης: 0 απαλλαγή, 0,25 ένα τέταρτο, 1 ή κενό πλήρες βάρος'),
              wraplength=760).pack(pady=5)
     tk.Label(root, text=tr('Management Fee', 'Αμοιβή διαχείρισης')).pack(pady=10)
     tk.Entry(root, textvariable=fee_var).pack()
@@ -1320,7 +1346,7 @@ def launch_edit_dashboard(ws, save_properties, *, initial=False):
             if save_properties(properties, fee) is False:
                 return
         except Exception as exc:
-            messagebox.showerror(tr('Edit Data Error', 'Σφάλμα επεξεργασίας στοιχείων'), error_details(exc))
+            messagebox.showerror(tr('Check apartment details', 'Έλεγχος στοιχείων ιδιοκτησίας'), error_details(exc))
             return
         result["status"] = "next"
         root.destroy()
@@ -1343,7 +1369,7 @@ def launch_dashboard(owners, tenant_debts, owner_debts, tenants=None):
     result = {"status": "quit"}
 
     root = tk.Tk()
-    root.title(tr('Utilities Dashboard', 'Πληρωμές κοινοχρήστων'))
+    root.title(tr('Common expense payments', 'Πληρωμές κοινοχρήστων'))
     root.geometry("920x580")
 
     payments = [0] * len(owners)
@@ -1386,7 +1412,7 @@ def launch_dashboard(owners, tenant_debts, owner_debts, tenants=None):
                 if val and full_flag:
                     messagebox.showerror(
                         tr('Error', 'Σφάλμα'),
-                        tr(f'{owners[i]}: Cannot enter payment AND select full payment.', f'{owners[i]}: Δεν επιτρέπεται ταυτόχρονη καταχώριση πληρωμής και εξόφλησης.')
+                        tr(f'{owners[i]}: Enter a payment amount or choose full settlement.', f'{owners[i]}: Βάλτε ποσό πληρωμής ή επιλέξτε εξόφληση.')
                     )
                     return
 
@@ -1426,12 +1452,12 @@ def launch_dashboard(owners, tenant_debts, owner_debts, tenants=None):
 
 def launch_bills_dashboard(validate_expenses):
     root = tk.Tk()
-    root.title(tr('Bills Input', 'Καταχώριση δαπανών'))
+    root.title(tr('Enter expenses', 'Καταχώριση δαπανών'))
     root.geometry("530x780")
 
     entries = {}
 
-    tk.Label(root, text=tr('Bills Input', 'Καταχώριση δαπανών'), font=("Arial", 12, "bold")).pack(pady=10)
+    tk.Label(root, text=tr('Enter expenses', 'Καταχώριση δαπανών'), font=("Arial", 12, "bold")).pack(pady=10)
 
     frame = tk.Frame(root)
     frame.pack()
@@ -1447,35 +1473,21 @@ def launch_bills_dashboard(validate_expenses):
 
         entries[name] = var
 
-    tk.Label(root, text=tr('Urgent expenses are charged to owners.\nExtra expenses are charged to tenants.', 'Έκτακτες δαπάνες ιδιοκτητών: χρεώνονται στους ιδιοκτήτες.\nΠρόσθετες δαπάνες ενοικιαστών: χρεώνονται στους ενοικιαστές.'), wraplength=480, justify="left").pack(pady=8)
+    tk.Label(root, text=tr('Owners pay urgent expenses.\nTenants pay extra expenses.', 'Οι έκτακτες δαπάνες χρεώνονται στους ιδιοκτήτες.\nΟι πρόσθετες δαπάνες χρεώνονται στους ενοικιαστές.'), wraplength=480, justify="left").pack(pady=8)
 
-    urgent_desc = tk.StringVar()
-    urgent_amount = tk.StringVar()
-
-    tk.Label(root, text=tr('Urgent expense 1 (owner)', 'Έκτακτη δαπάνη ιδιοκτητών 1')).pack(pady=5)
-    tk.Entry(root, textvariable=urgent_desc).pack()
-    tk.Entry(root, textvariable=urgent_amount).pack()
-
-    urgent2_desc = tk.StringVar()
-    urgent2_amount = tk.StringVar()
-
-    tk.Label(root, text=tr('Urgent expense 2 (owner)', 'Έκτακτη δαπάνη ιδιοκτητών 2')).pack(pady=5)
-    tk.Entry(root, textvariable=urgent2_desc).pack()
-    tk.Entry(root, textvariable=urgent2_amount).pack()
-
-    extra1_desc = tk.StringVar()
-    extra1_amount = tk.StringVar()
-
-    tk.Label(root, text=tr('Extra expense 1 (tenant)', 'Πρόσθετη δαπάνη ενοικιαστών 1')).pack(pady=5)
-    tk.Entry(root, textvariable=extra1_desc).pack()
-    tk.Entry(root, textvariable=extra1_amount).pack()
-
-    extra2_desc = tk.StringVar()
-    extra2_amount = tk.StringVar()
-
-    tk.Label(root, text=tr('Extra expense 2 (tenant)', 'Πρόσθετη δαπάνη ενοικιαστών 2')).pack(pady=5)
-    tk.Entry(root, textvariable=extra2_desc).pack()
-    tk.Entry(root, textvariable=extra2_amount).pack()
+    additional_titles = {
+        "urgent": tr("Owner expense 1", "Έκτακτη δαπάνη ιδιοκτητών 1"),
+        "urgent2": tr("Owner expense 2", "Έκτακτη δαπάνη ιδιοκτητών 2"),
+        "extra1": tr("Extra tenant expense 1", "Πρόσθετη δαπάνη ενοικιαστών 1"),
+        "extra2": tr("Extra tenant expense 2", "Πρόσθετη δαπάνη ενοικιαστών 2"),
+    }
+    additional_entries = {}
+    for key in ADDITIONAL_BILLS:
+        description, amount = tk.StringVar(), tk.StringVar()
+        tk.Label(root, text=additional_titles[key]).pack(pady=5)
+        tk.Entry(root, textvariable=description).pack()
+        tk.Entry(root, textvariable=amount).pack()
+        additional_entries[key] = description, amount
 
     result = {}
 
@@ -1493,31 +1505,21 @@ def launch_bills_dashboard(validate_expenses):
 
                 data["standard"][k] = val
 
-            data["urgent"] = (
-                urgent_desc.get(),
-                money_cents(urgent_amount.get(), blank_zero=True)
-            )
+            for key, (description, amount) in additional_entries.items():
+                data[key] = description.get(), money_cents(amount.get(), blank_zero=True)
 
-            data["urgent2"] = (
-                urgent2_desc.get(),
-                money_cents(urgent2_amount.get(), blank_zero=True)
-            )
-
-            data["extra1"] = (
-                extra1_desc.get(),
-                money_cents(extra1_amount.get(), blank_zero=True)
-            )
-
-            data["extra2"] = (
-                extra2_desc.get(),
-                money_cents(extra2_amount.get(), blank_zero=True)
-            )
-
-            for key in ("urgent", "urgent2", "extra1", "extra2"):
-                if data[key][1] < 0:
-                    raise ValueError(tr(f'{EXPENSE_LABELS[key]}: negative values not allowed', f'{EXPENSE_LABELS[key]}: δεν επιτρέπονται αρνητικές τιμές'))
-                if data[key][1] > 0 and not data[key][0].strip():
-                    raise ValueError(tr(f'{EXPENSE_LABELS[key]}: description is required', f'{EXPENSE_LABELS[key]}: απαιτείται περιγραφή'))
+            for key in ADDITIONAL_BILLS:
+                description, amount = data[key]
+                if amount < 0:
+                    raise ValueError(tr(
+                        f"{EXPENSE_LABELS[key]}: negative values not allowed",
+                        f"{EXPENSE_LABELS[key]}: δεν επιτρέπονται αρνητικές τιμές",
+                    ))
+                if amount > 0 and not description.strip():
+                    raise ValueError(tr(
+                        f"{EXPENSE_LABELS[key]}: description is required",
+                        f"{EXPENSE_LABELS[key]}: απαιτείται περιγραφή",
+                    ))
 
             data["allocations"] = validate_expenses(data)
             data["generate_pdf"] = generate_pdf
@@ -1528,21 +1530,11 @@ def launch_bills_dashboard(validate_expenses):
             messagebox.showerror(tr('Error', 'Σφάλμα'), f"{e}")
             return None
 
-    def submit():
-        data = collect_bills_data(generate_pdf=False)
-        if data is None:
-            return
-
-        result.update(data)
-        root.destroy()
-
-    def submit_and_generate():
-        data = collect_bills_data(generate_pdf=True)
-        if data is None:
-            return
-
-        result.update(data)
-        root.destroy()
+    def submit(generate_pdf=False):
+        data = collect_bills_data(generate_pdf)
+        if data is not None:
+            result.update(data)
+            root.destroy()
 
     def on_close():
         result["status"] = "quit"
@@ -1552,7 +1544,7 @@ def launch_bills_dashboard(validate_expenses):
     root.protocol("WM_DELETE_WINDOW", on_close)
 
     tk.Button(root, text=tr('Finish without PDF', 'Ολοκλήρωση χωρίς PDF'), command=submit).pack(pady=5)
-    tk.Button(root, text=tr('Generate PDF & Finish', 'Δημιουργία PDF και ολοκλήρωση'), command=submit_and_generate).pack(pady=10)
+    tk.Button(root, text=tr('Finish and export PDF', 'Ολοκλήρωση με PDF'), command=lambda: submit(generate_pdf=True)).pack(pady=10)
 
     root.mainloop()
 
@@ -1664,7 +1656,7 @@ def select_file(title, expected_keyword):
         if expected_keyword.casefold() not in filename.casefold():
             messagebox.showerror(
                 tr('Wrong File', 'Λανθασμένο αρχείο'),
-                tr(f'Selected file is not valid.\n\nExpected file containing:\n{expected_keyword}', f'Το επιλεγμένο αρχείο δεν είναι έγκυρο.\n\nΑναμένεται όνομα αρχείου που περιέχει:\n{expected_keyword}')
+                tr(f'Choose an Excel file with {expected_keyword} in its name.', f'Επιλέξτε αρχείο Excel που έχει το {expected_keyword} στο όνομά του.')
             )
             continue
 
@@ -1748,7 +1740,7 @@ def edit_properties(path, path2, wb, wb2, revisions, *, setup=None):
 
 def bill_amounts(data):
     amounts = {STANDARD_BILLS[key][0]: value for key, value in data["standard"].items()}
-    amounts.update({slots[1]: data[key][1] for key, slots in ADDITIONAL_BILLS.items()})
+    amounts.update({charge: data[key][1] for key, (_, charge, _, _) in ADDITIONAL_BILLS.items()})
     return amounts
 
 
@@ -1829,7 +1821,9 @@ def run_month(path, path2, wb, wb2, revisions):
         if tenant and normalize_name(source[f"D{row}"].value) != normalize_name(property_values(source, row)[2])
     ]):
         return False
-    name, month, _, common, ledger = create_month_sheets(wb, wb2, previous, opening_cash=opening_cash)
+    name, month, _, common, ledger = create_month_sheets(
+        wb, wb2, previous, opening_cash=opening_cash,
+    )
     apply_pending_properties(common, ledger, balances)
     weights, _ = apartment_weights(common)
     rows = [row for row, weight in zip(APARTMENT_ROWS, weights) if weight]
@@ -1843,15 +1837,8 @@ def run_month(path, path2, wb, wb2, revisions):
                 f"{previous} / #{row - 13}: τακτοποιήστε τα υπόλοιπα της ανενεργής ιδιοκτησίας πριν συνεχίσετε.",
             ))
     messagebox.showinfo(tr("New month", "Νέος μήνας"), f"{DISPLAY_MONTHS[month.month - 1]} {month.year}")
-    if rows:
-        owners = [f"#{row - 13} · {common[f'E{row}'].value}" for row in rows]
-        tenants = [common[f"D{row}"].value for row in rows]
-        debts = [balances[row - APARTMENT_ROWS.start] for row in rows]
-        payments, full, status = launch_dashboard(owners, [b[0] for b in debts], [b[1] for b in debts], tenants)
-        if status == "quit":
-            return False
-        for row, (tenant, owner, _), paid, settle in zip(rows, debts, payments, full):
-            record_payment(common, ledger, row, tenant, owner, paid, full=settle)
+    if rows and not collect_month_payments(common, ledger, rows, balances):
+        return False
 
     bills, status = launch_bills_dashboard(lambda data: monthly_allocations(common, bill_amounts(data)))
     if status == "quit":
@@ -1859,9 +1846,28 @@ def run_month(path, path2, wb, wb2, revisions):
     record_expenses(common, ledger, bills)
     validate_month_cash(ledger)
     if not messagebox.askyesno(tr("Confirm", "Επιβεβαίωση"), tr(
-        "Save both updated Excel workbooks?", "Αποθήκευση και των δύο ενημερωμένων αρχείων Excel;",
+        "Save changes to both Excel workbooks?", "Να αποθηκευτούν οι αλλαγές και στα δύο βιβλία Excel;",
     )):
         return False
+    save_month(path, path2, wb, wb2, revisions, name=name, month=month, bills=bills)
+    return True
+
+
+def collect_month_payments(common, ledger, rows, balances) -> bool:
+    owners = [f"#{row - 13} · {common[f'E{row}'].value}" for row in rows]
+    tenants = [common[f"D{row}"].value for row in rows]
+    debts = [balances[row - APARTMENT_ROWS.start] for row in rows]
+    payments, full_settlements, status = launch_dashboard(
+        owners, [tenant for tenant, _, _ in debts], [owner for _, owner, _ in debts], tenants,
+    )
+    if status == "quit":
+        return False
+    for row, (tenant, owner, _), payment, full in zip(rows, debts, payments, full_settlements):
+        record_payment(common, ledger, row, tenant, owner, payment, full=full)
+    return True
+
+
+def save_month(path, path2, wb, wb2, revisions, *, name, month, bills):
     export = (lambda: export_month_pdf(path, month, name)) if bills["generate_pdf"] else None
 
     def check_prepared(staged, cash):
@@ -1884,7 +1890,6 @@ def run_month(path, path2, wb, wb2, revisions):
         messagebox.showinfo(tr("New file", "Νέο αρχείο"), tr(f"PDF generated:\n{pdf}", f"Δημιουργήθηκε PDF:\n{pdf}"))
     else:
         messagebox.showinfo(tr("Saved", "Αποθηκεύτηκε"), tr("Both workbooks were saved.", "Τα δύο βιβλία αποθηκεύτηκαν."))
-    return True
 
 
 def main():

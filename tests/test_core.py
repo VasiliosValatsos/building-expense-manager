@@ -1,4 +1,4 @@
-"""Expected public helper contract; validate against the final bilingual code."""
+"""Tests for numeric input, payments and monthly sheet names."""
 import unittest
 import main
 

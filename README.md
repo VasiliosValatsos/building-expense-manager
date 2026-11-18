@@ -1,24 +1,19 @@
 # Building Expense Manager
 
-A bilingual Python desktop application that automates monthly common-expense allocation, payment tracking and financial reporting for a residential building with 15 apartment slots.
+A Python desktop app for managing monthly building expenses. It uses two Excel workbooks, supports up to 15 apartments and has a Greek and English interface.
 
 [Ελληνικά](README_GR.md) · [User guide](docs/USER_GUIDE_EN.md) · [Testing](docs/TESTING.md)
 
-## Problem and impact
+## Why I built it
 
-Monthly building management previously required repetitive manual work across Excel workbooks: recording payments, carrying forward balances, allocating expenses and preparing a report. This application consolidates these steps into a guided workflow.
+I used to record payments, carry balances forward, split expenses and prepare the monthly report by hand in Excel. That took me about 30–60 minutes a month. With the app, I usually finish in less than five minutes. These times are my own estimates from using it.
 
-**Reported real-world processing time:** approximately 30–60 minutes manually, reduced to under 5 minutes using the application (developer's own operational estimate; not a controlled benchmark).
+## What it does
 
-## Features
-
-- Greek and English graphical interface with a single application entry point.
-- Property and occupant records, including heating participation factors.
-- Monthly payment entry, debt carry-forward and credit balances.
-- Separate allocation of owner and tenant expenses.
-- Excel-based accounting and monthly PDF export.
-- Confirmed deletion of the latest monthly sheets and matching PDF.
-- Input validation and safeguards against incomplete monthly updates.
+- Splits owner and tenant expenses proportionally and allocates every cent. Heating uses weighted floor area.
+- Records actual payments and carries debts and credits into the next month.
+- Checks the charges against the expenses and reconciles the cash ledger before saving.
+- Creates monthly Excel sheets and can export a PDF. Deleting the latest month and its PDF requires confirmation.
 
 ## Technology
 
@@ -39,12 +34,10 @@ See the [screenshots gallery](docs/screenshots/README.md) for the application wo
 
 ## Requirements
 
-- Python 3.11 or newer recommended (use a version compatible with your installed dependencies).
-- Microsoft Excel desktop, installed and activated. Excel Online alone is not sufficient.
+- Python 3.11 or later, with versions of the packages that support your interpreter.
+- An installed, activated copy of desktop Microsoft Excel.
 - Tkinter and the packages in `requirements.txt`.
 - The two supplied blank XLSX templates, with their original cell layout and formulas.
-
-The developer reports successful manual testing of the final bilingual application on Windows 10 and macOS. Other operating system versions and packaged executables are not certified.
 
 ## Quick start
 
@@ -66,7 +59,7 @@ python3 -m venv .venv
 .venv/bin/python main.py
 ```
 
-Before first use, copy the two blank files from `templates/` to a private working folder outside the repository. Keep their Greek filenames. Close those files in Excel, choose your language and select the working copies when prompted. The originals should remain unchanged.
+Before you start, copy both blank files from `templates/` to a private folder outside the repository. Keep their Greek filenames and close the copies in Excel. Choose your language and select the copies when the app asks for the workbooks.
 
 ## Monthly workflow
 
@@ -76,7 +69,7 @@ Before first use, copy the two blank files from `templates/` to a private workin
 4. Confirm the update and optionally generate the monthly PDF.
 5. Verify the report and ledger against the original records.
 
-Heating factors: `0` = exempt; `0.25` = 25% weighting; `1` or blank = full weighting. A factor is a relative allocation weight, not a fixed percentage of the final bill.
+Use `0` to exclude an apartment from heating. A factor of `0.25` gives it a quarter of its usual floor-area weight. Use `1` or leave the field blank for full weight.
 
 ## Testing
 
@@ -84,18 +77,17 @@ Heating factors: `0` = exempt; `0.25` = 25% weighting; `1` or blank = full weigh
 python -m unittest discover -s tests -v
 ```
 
-The automated suite checks the expected helper-function interface, numeric input, payment allocation, month creation, heating safeguards, deletion and workbook structure. GitHub Actions runs headless tests; it does not launch Excel or the GUI. See [TESTING.md](docs/TESTING.md) for scope and manual acceptance checks.
+The regression suite covers payments, allocation, month creation, workbook validation and recovery. The GitHub Actions workflow runs without Excel or the GUI. Two monthly runs and a PDF export were compared against the previous checkpoint in desktop Excel on Windows 10, using simulated form inputs. See [TESTING.md](docs/TESTING.md) for test scope and the remaining manual checks.
 
 ## Limitations and data safety
 
-- Designed for the supplied fixed 15-slot workbook structure; not general-purpose accounting software.
-- Desktop Excel is necessary for formula recalculation and PDF export. The interface is bilingual, but the supplied workbooks and generated reports use Greek labels.
-- Local file-based storage. Close working documents before updates; keep independent backups. Two-file updates cannot be guaranteed atomic during system crashes.
+- The app uses the supplied 15-slot workbook layout and the allocation rules of this building.
+- Desktop Excel recalculates formulas and exports PDFs. Workbooks and reports use Greek labels.
+- Files stay local. Close the working documents before an update and keep separate backups. An interruption can leave one workbook updated before the other.
 - Never commit live accounting documents, personal information or local settings. Use only blank templates and synthetic demonstration assets.
-- Allocation rules reflect this building's workflow, not universal legal or accounting rules.
 
 ## Author and license
 
-Developed by **Vasilios Valatsos**, with AI assistance at selected implementation stages.
+Vasilios Valatsos developed the app with AI assistance for parts of the implementation.
 
 The Python code is available under the [MIT License](LICENSE). The author has confirmed permission to distribute the blank workbook templates. See [ASSET_LICENSE.md](docs/ASSET_LICENSE.md) for accompanying assets.

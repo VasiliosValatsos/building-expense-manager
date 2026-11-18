@@ -1,6 +1,6 @@
 # Application gallery
 
-English-language workflow using fictional data.
+The screenshots show an earlier version of the English interface with fictional data. Some button names have since changed.
 
 ### Dashboard
 

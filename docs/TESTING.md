@@ -1,15 +1,15 @@
 # Testing
 
-## Evidence and scope
+## Automated tests
 
-The unittest suite exercises cent-level payments, settlement and allocation, the cash roll-forward, the management fee, apartment transitions, template layout, error handling and workbook recovery. Tests for calculated cells use a simulated Excel reader. Use the checklist below for native Excel and GUI verification.
+The regression suite checks payments and settlement, cent-level allocations, cash carry-forward, the management fee, changes to apartment records, template layout and recovery after a failed save. Tests that read calculated cells use a simulated Excel reader.
 
-The test runner uses the Python standard library `unittest`. Use `python -m unittest discover -s tests -v` after adding `main.py` and both templates. On macOS replace `python` with `python3` if necessary. CI uses Python 3.11 and 3.12 on Windows and macOS, with no desktop Excel execution. It does not certify Windows 10 compatibility or GUI rendering.
+Run `python -m unittest discover -s tests -v` from the repository root with the dependencies installed. On macOS, use `python3` if needed. The CI workflow is configured for Python 3.11 and 3.12 on Windows and macOS. It runs without desktop Excel or the GUI.
 
-## Acceptance checklist (use copies, not live or published templates)
+## Manual checks with working copies
 
-- [ ] Launch and select both languages; verify all labels and dialogs.
-- [ ] Initial setup and all 15 slots; decimal comma/point entries; cancel edits without saving; confirm a public template cannot be selected as a working file.
+- [ ] Open the app in each language and check the labels and dialogs.
+- [ ] Test initial setup and all 15 slots. Try both decimal separators, cancel an edit, and check that the app rejects public templates as working files.
 - [ ] Payments: zero, partial, full, overpayment, negative rejection, checkbox conflicts and gaps in occupied slots. Check a negative net balance remains credit after full settlement and enters no cash income.
 - [ ] Heating: zero, 0.25, 0.5, 1, blank, invalid factors and no participant with a positive bill.
 - [ ] For five equal-area properties with factors 1, 0.5, 0.25, 0 and blank, allocate a heating bill of 275 EUR: expected charges 100, 50, 25, 0, 100 EUR.
@@ -26,9 +26,9 @@ The test runner uses the Python standard library `unittest`. Use `python -m unit
 
 ## Record exact tested versions
 
-Run `python --version` and `python -m pip show openpyxl xlwings python-dateutil`. Record versions from both operating systems below or in a release note. Dependency ranges are provisional, not a reproducibility lockfile.
+Run `python --version` and `python -m pip show openpyxl xlwings python-dateutil` to record the versions used for a test. The install requirements specify version ranges.
 
-## Tested Development Environment
+## Windows test environment
 
 | Component | Version |
 |---|---|
@@ -41,8 +41,4 @@ Run `python --version` and `python -m pip show openpyxl xlwings python-dateutil`
 | six | 1.17.0 |
 | et-xmlfile | 2.0.0 |
 
-Dependencies were successfully installed in an isolated Python virtual environment.
-
-The application has also been manually tested on macOS.
-
-Automated regression tests are executed using Python's built-in unittest framework. Microsoft Excel integration and PDF generation are validated separately through manual testing.
+All 47 regression tests passed in this virtual environment. A separate check used desktop Excel 16.0 with simulated form inputs to compare two monthly workbooks and the PDF text with the previous checkpoint. The interactive GUI checklist, the current macOS run and the current CI matrix remain to be checked. The developer reported manual macOS checks on an earlier version.
