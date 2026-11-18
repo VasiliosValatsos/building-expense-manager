@@ -2,4 +2,4 @@
 
 [View the example monthly report (PDF)](sample-report.pdf).
 
-This file must contain fictional data only and is provided as an illustration, not an actual financial statement.
+The PDF uses fictional data and carries a demonstration label. It illustrates the report layout from before the cent-level allocation update.

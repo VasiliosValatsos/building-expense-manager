@@ -15,7 +15,7 @@ class CoreTests(unittest.TestCase):
                 main.to_float(value)
 
     def test_payment_allocation(self):
-        for m,n,paid,expected in [(20,30,10,(10,30)),(20,30,25,(0,25)),(20,30,50,(0,0)),(20,30,60,(0,-10))]:
+        for m,n,paid,expected in [(20,30,10,(10,30)),(20,30,25,(0,25)),(20,30,50,(0,0)),(20,30,60,(-10,0))]:
             with self.subTest(paid=paid):
                 self.assertEqual(main.apply_payment(m,n,paid), expected)
 
