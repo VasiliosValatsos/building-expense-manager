@@ -42,3 +42,5 @@ Run `python --version` and `python -m pip show openpyxl xlwings python-dateutil`
 | et-xmlfile | 2.0.0 |
 
 All 47 regression tests passed in this virtual environment. A separate check used desktop Excel 16.0 with simulated form inputs to compare two monthly workbooks and the PDF text with the previous checkpoint. The interactive GUI checklist, the current macOS run and the current CI matrix remain to be checked. The developer reported manual macOS checks on an earlier version.
+
+For the portfolio example, the same Windows setup ran the application's monthly workflow with fictional inputs for two consecutive months. Desktop Excel recalculated both books and exported the February PDF. The checked values include the apartment allocations, receipts, management fee and closing balance. The [demo walkthrough](../examples/sample-output/README.md) lists the inputs and expected results. The automated CI matrix still runs without Excel or the GUI.

@@ -4,6 +4,10 @@ A Python desktop app for managing monthly building expenses. It uses two Excel w
 
 [Ελληνικά](README_GR.md) · [User guide](docs/USER_GUIDE_EN.md) · [Testing](docs/TESTING.md)
 
+![Monthly common-expenses report for a fictional building](docs/screenshots/pdf-report.png)
+
+[Screenshots](docs/screenshots/README.md) · [Download the demo and follow the calculations](examples/sample-output/README.md)
+
 ## Why I built it
 
 I used to record payments, carry balances forward, split expenses and prepare the monthly report by hand in Excel. That took me about 30–60 minutes a month. With the app, I usually finish in less than five minutes. These times are my own estimates from using it.
@@ -15,31 +19,25 @@ I used to record payments, carry balances forward, split expenses and prepare th
 - Checks the charges against the expenses and reconciles the cash ledger before saving.
 - Creates monthly Excel sheets and can export a PDF. Deleting the latest month and its PDF requires confirmation.
 
-## Technology
-
-Python · Tkinter · openpyxl · xlwings · python-dateutil · Microsoft Excel
+## How the month is calculated
 
 ```mermaid
 flowchart LR
-    A[Desktop interface] --> B[Payment and expense processing]
-    B --> C[Common expenses workbook]
-    B --> D[Income and expenses ledger]
-    C --> E[Microsoft Excel]
-    E --> F[Monthly PDF]
+    A["Previous balances, payments and expenses"] --> B["Payment offsets and allocation in cents"]
+    B --> C["Reconcile charges and cash in Excel"]
+    C --> D["Save both monthly worksheets"]
+    D --> E["Export the report to PDF if requested"]
 ```
 
-## Screenshots
+Payments first offset debts and credits within each apartment. Cash goes to the tenant's debt first, then to the owner's. An overpayment becomes a tenant credit. The ledger records cash received, while the common-expenses workbook shows charges and outstanding balances.
 
-See the [screenshots gallery](docs/screenshots/README.md) for the application workflow and Excel report, and the [sample report folder](examples/sample-output/README.md) for an illustrative PDF.
+For each expense, the app calculates proportional shares using floor area, or floor area multiplied by a heating factor. It allocates whole cents first, then gives the remaining cents to the largest fractional remainders. In a tie, the earlier apartment row comes first. This is the Largest Remainder method. The app checks that the allocations add up to the expense and that opening cash plus receipts minus actual outflows equals closing cash.
 
-## Requirements
+In the demo, three apartments of 50, 75 and 100 m² split a €100 cleaning bill into **€22.22, €33.33 and €44.45**. February starts with €515 in cash. It receives €70 and pays €215 in expenses, so it closes with **€370**. The [full example](examples/sample-output/README.md) shows how a tenant credit offsets an owner's debt without creating a cash receipt.
 
-- Python 3.11 or later, with versions of the packages that support your interpreter.
-- An installed, activated copy of desktop Microsoft Excel.
-- Tkinter and the packages in `requirements.txt`.
-- The two supplied blank XLSX templates, with their original cell layout and formulas.
+## Setup
 
-## Quick start
+The app uses Python, Tkinter and openpyxl. It uses xlwings to recalculate and export through desktop Microsoft Excel and python-dateutil to advance the reporting month. Use Python 3.11 or later with compatible dependencies, Tkinter and an installed, activated copy of Excel. Keep the two blank XLSX templates and their sheet layouts intact.
 
 Download or clone the repository. In a terminal at its root:
 
@@ -77,7 +75,7 @@ Use `0` to exclude an apartment from heating. A factor of `0.25` gives it a quar
 python -m unittest discover -s tests -v
 ```
 
-The regression suite covers payments, allocation, month creation, workbook validation and recovery. The GitHub Actions workflow runs without Excel or the GUI. Two monthly runs and a PDF export were compared against the previous checkpoint in desktop Excel on Windows 10, using simulated form inputs. See [TESTING.md](docs/TESTING.md) for test scope and the remaining manual checks.
+The 47 regression tests cover payments, allocation, month creation, workbook validation and recovery. The presentation samples were generated and checked in desktop Excel 16.0 on Windows 10 with Python 3.15.2, using fictional inputs supplied to the app's monthly workflow. See [TESTING.md](docs/TESTING.md) for the CI matrix, earlier macOS checks and the remaining manual acceptance tests.
 
 ## Limitations and data safety
 
