@@ -51,18 +51,25 @@ class SaveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             paths, (common, ledger), revisions = self.fresh_pair(directory)
             replace = os.replace
+            failures = []
 
             def fail_commit_and_restore(source, target):
-                if target == paths[1] or "rollback" in Path(source).name:
+                if Path(target).resolve() == paths[1].resolve():
+                    failures.append("second workbook")
+                    raise PermissionError("locked")
+                if Path(source).name.startswith(".bem-rollback-"):
+                    self.assertEqual(Path(target).resolve(), paths[0].resolve())
+                    failures.append("rollback")
                     raise PermissionError("locked")
                 return replace(source, target)
 
             with patch.object(main.os, "replace", side_effect=fail_commit_and_restore):
                 with self.assertRaisesRegex(RuntimeError, "restore these backups") as error:
                     main.save_workbooks_safely(common, paths[0], ledger, paths[1], revisions=revisions)
+            self.assertEqual(failures, ["second workbook", "rollback"])
             backups = list(Path(directory).glob(".bem-rollback-*.xlsx"))
             self.assertEqual(len(backups), 1)
-            self.assertIn(str(backups[0]), str(error.exception))
+            self.assertIn(str(backups[0].resolve()), str(error.exception))
             self.assertEqual(main.workbook_revision(backups[0]), revisions[0])
             self.assertEqual(main.workbook_revision(paths[1]), revisions[1])
 

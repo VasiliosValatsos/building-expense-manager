@@ -202,8 +202,14 @@ class StabilityTests(unittest.TestCase):
     def test_rollback_error_keeps_recovery_instructions_when_lock_cleanup_fails(self):
         books, paths = self.save_fixture()
         replace, unlink = os.replace, Path.unlink
+        failures = []
         def fail_replace(src, dst):
-            if dst == paths[1] or "rollback" in Path(src).name:
+            if Path(dst).resolve() == paths[1].resolve():
+                failures.append("second workbook")
+                raise PermissionError("replacement blocked")
+            if Path(src).name.startswith(".bem-rollback-"):
+                self.assertEqual(Path(dst).resolve(), paths[0].resolve())
+                failures.append("rollback")
                 raise PermissionError("replacement blocked")
             replace(src, dst)
         def fail_lock(path, *args, **kwargs):
@@ -213,6 +219,7 @@ class StabilityTests(unittest.TestCase):
         with patch.object(main.os, "replace", fail_replace), patch.object(Path, "unlink", fail_lock):
             with self.assertRaisesRegex(RuntimeError, "restore these backups") as error:
                 main.save_workbooks_safely(books[0], paths[0], books[1], paths[1])
+        self.assertEqual(failures, ["second workbook", "rollback"])
         self.assertIn("lock cleanup blocked", main.error_details(error.exception))
         self.assertTrue(main.transaction_path(paths[0]).is_file())
         self.assertTrue(list(self.folder.glob(".bem-rollback-common-*.xlsx")))
@@ -230,14 +237,19 @@ x,y=load_workbook(a),load_workbook(b)
 x.active['A1']=y.active['A1']='New'
 original=os.replace
 def interrupted(src, dst):
-    if dst == b:
+    if Path(dst).resolve() == b.resolve():
+        print("Interrupted before second workbook replacement", flush=True)
         os._exit(42)
     original(src,dst)
 main.os.replace=interrupted
 main.save_workbooks_safely(x,a,y,b)
 """
-        child = subprocess.run([sys.executable, "-B", "-c", script, *map(str, paths)], check=False)
+        child = subprocess.run(
+            [sys.executable, "-B", "-c", script, *map(str, paths)],
+            check=False, capture_output=True, text=True,
+        )
         self.assertEqual(child.returncode, 42)
+        self.assertIn("Interrupted before second workbook replacement", child.stdout)
         self.assertNotEqual(paths[0].read_bytes(), before[0])
         self.assertEqual(paths[1].read_bytes(), before[1])
         journal = json.loads(main.transaction_path(paths[0]).read_text(encoding="utf-8"))
@@ -252,17 +264,23 @@ main.save_workbooks_safely(x,a,y,b)
         pdf = self.folder / "Fictional.pdf"
         pdf.write_bytes(b"%PDF-Previous")
         replace = os.replace
+        failures = []
         def fail_replace(src, dst):
-            if dst == paths[1]:
+            if Path(dst).resolve() == paths[1].resolve():
+                failures.append("second workbook")
                 raise OSError("workbook replacement failed")
-            if dst == pdf:
+            if Path(dst).resolve() == pdf.resolve():
+                self.assertTrue(Path(src).name.startswith(".bem-delete-"))
+                failures.append("PDF restoration")
                 raise OSError("PDF restore blocked")
             replace(src, dst)
         with patch.object(main.os, "replace", fail_replace), self.assertRaisesRegex(OSError, "workbook replacement failed") as error:
             main.save_workbooks_safely(books[0], paths[0], books[1], paths[1], delete_pdf=pdf)
+        self.assertEqual(failures, ["second workbook", "PDF restoration"])
         [staged] = self.folder.glob(".bem-delete-*.pdf")
         self.assertEqual(staged.read_bytes(), b"%PDF-Previous")
-        self.assertIn(str(staged), main.error_details(error.exception))
+        recovery_source = error.exception.__notes__[0].split(" → ", 1)[0]
+        self.assertEqual(Path(recovery_source).resolve(), staged.resolve())
         self.assertTrue(main.transaction_path(paths[0]).is_file())
 
     def test_failed_pdf_export_is_a_post_commit_warning_under_lock(self):
