@@ -1,17 +1,16 @@
 # Changelog
 
-## 1.0.0 — First proposed public release
+## 1.0.0 development milestones
 
-Consolidated development milestones (not a claim that earlier private builds were GitHub releases):
-
-- Monthly common-expense allocation and paired Excel ledger automation.
-- Decimal comma and point input; calculated debt reading through desktop Excel.
-- Owner and tenant names in payment entry, input validation and safer save handling.
-- Confirmation and safeguards for deleting the last month and matching PDF.
-- Heating factor zero exemption, with blank representing full participation.
-- Differentiated owner and tenant expenses, refreshed templates and preservation of conditional formatting.
-- Unified bilingual interface.
-- Developer-reported Windows 10 and macOS manual verification.
-- Public documentation, test suite, continuous integration and blank-template distribution preparation.
-
-The public release should be tagged only after the bundled tests pass against the exact final `main.py` and all publication assets have been reviewed.
+- Added monthly expense allocation and updates to both Excel workbooks.
+- Accepted decimal commas and points. Used desktop Excel to read recalculated debts.
+- Showed owners and tenants during payment entry, validated inputs and added recovery for workbook saves.
+- Required confirmation to delete the latest month and its PDF.
+- Used a heating factor of zero for exemption and a blank field for full weight.
+- Split owner and tenant expenses, updated the blank templates and kept their conditional formatting.
+- Combined the Greek and English interfaces in one app.
+- Added documentation, regression tests and a GitHub Actions workflow.
+- The developer reported manual checks of an earlier version on Windows 10 and macOS.
+- Added cent-level allocations, explicit credit handling, closing cash carry-forward and a ledger entry for the management fee.
+- Added reconciliation before saving, recovery records and checks for changes to open workbooks.
+- Separated the Python routines that build Excel formulas, write reports and save a month. Compared the resulting workbooks and PDF text with the previous checkpoint.

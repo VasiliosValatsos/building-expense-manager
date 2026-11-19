@@ -1,10 +1,12 @@
 # Δημοσίευση με GitHub Desktop
 
-## 1. Προετοιμασία
+## Αρχεία για δημοσίευση
 
-Αποσυμπίεσε το ZIP σε έναν νέο φάκελο `building-expense-manager`, όχι στον φάκελο των πραγματικών οικονομικών δεδομένων. Πρόσθεσε το τελικό ενιαίο `main.py` στη ρίζα. Στο `templates/` βάλε τα δύο κενά αναβαθμισμένα Excel με ονόματα `ΚΟΙΝΟΧΡΗΣΤΑ.xlsx` και `ΒΙΒΛΙΟ ΕΣΟΔΩΝ_ΕΞΟΔΩΝ.xlsx`. Στο `docs/screenshots/` βάλε τα έξι PNG: dashboard.png, edit-data.png, payments.png, expenses.png, excel-report.png, pdf-report.png. Αν έχεις άλλον τύπο εικόνας, μετέτρεψέ τον πραγματικά σε PNG ή άλλαξε τα links στο README της συλλογής. Βάλε το πλασματικό PDF στο `examples/sample-output/sample-report.pdf`.
+Έλεγξε ότι στο `building-expense-manager` υπάρχουν το `main.py`, τα κενά `ΚΟΙΝΟΧΡΗΣΤΑ.xlsx` και `ΒΙΒΛΙΟ ΕΣΟΔΩΝ_ΕΞΟΔΩΝ.xlsx` στο `templates/`, τα έξι PNG στο `docs/screenshots/` και το πλασματικό PDF στο `examples/sample-output/sample-report.pdf`. Έλεγξε και τους συνδέσμους της συλλογής εικόνων.
 
-Έλεγξε ότι δεν υπάρχουν πραγματικά οικονομικά/προσωπικά στοιχεία, κρυφά φύλλα, σχόλια, διαδρομές, metadata ή εξωτερικές συνδέσεις. Το .gitignore επιτρέπει τα δύο συγκεκριμένα templates και το συγκεκριμένο PDF, οπότε η ανωνυμοποίηση είναι υποχρεωτική. Μην εκτελείς την εφαρμογή απευθείας στα δημοσιεύσιμα templates: κράτησε αντίγραφα εργασίας εκτός repository.
+Η συλλογή χρησιμοποιεί τα dashboard.png, edit-data.png, payments.png, expenses.png, excel-report.png και pdf-report.png. Κράτησε επίσης τα .gitignore, .gitattributes και .github.
+
+Έλεγξε τα πρότυπα και τα δείγματα για πραγματικά οικονομικά ή προσωπικά στοιχεία. Κοίτα και τα κρυφά φύλλα, τα σχόλια, τα μεταδεδομένα, τις τοπικές διαδρομές και τις εξωτερικές συνδέσεις. Το .gitignore επιτρέπει τα δύο πρότυπα και το δείγμα PDF. Κράτησε τα βιβλία εργασίας σε ιδιωτικό φάκελο εκτός αποθετηρίου.
 
 ## 2. Έλεγχος πριν το upload
 
@@ -18,23 +20,22 @@ py -m venv .venv
 .venv\Scripts\python.exe -m pip show openpyxl xlwings python-dateutil
 ```
 
-Στο macOS χρησιμοποίησε `python3 -m venv .venv` και `.venv/bin/python` αντί για `.venv\Scripts\python.exe`. Τα tests είναι υποψήφια και βασίζονται σε προηγούμενες υπογραφές συναρτήσεων· δεν έχουν εκτελεστεί στο τελικό ενιαίο main.py. Αν αποτύχουν, έλεγξε τη συμβατότητά τους πριν δημοσιεύσεις. Συμπλήρωσε τις εκδόσεις στο TESTING.md. Μην αλλάξεις τον λειτουργικό κώδικα απλώς για να περάσει ένα παρωχημένο test.
+Στο macOS χρησιμοποίησε `python3 -m venv .venv` και `.venv/bin/python` αντί για `.venv\Scripts\python.exe`. Αν αποτύχει μια δοκιμή παλινδρόμησης, έλεγξε την αιτία πριν δημοσιεύσεις. Κατέγραψε τις εκδόσεις στο TESTING.md.
 
 ## 3. Λογαριασμός
 
-1. Άνοιξε https://github.com/signup και δημιούργησε δωρεάν προσωπικό λογαριασμό. Username: VasiliosValatsos, εφόσον είναι διαθέσιμο.
+1. Αν χρειάζεσαι λογαριασμό GitHub, άνοιξε το https://github.com/signup και συμπλήρωσε τη φόρμα εγγραφής.
 2. Επιβεβαίωσε email, ενεργοποίησε 2FA από Settings > Password and authentication και φύλαξε τους recovery codes ιδιωτικά.
-3. Στο Settings > Public profile βάλε όνομα Vasilios Valatsos, επαγγελματική φωτογραφία, σύνδεσμο LinkedIn και bio: Applied Mathematics Graduate | Data Analyst | Python & Automation.
+3. Στο Settings > Public profile έλεγξε το όνομα, τον σύνδεσμο LinkedIn και το σύντομο βιογραφικό σου.
 4. Στο Settings > Emails, προαιρετικά ενεργοποίησε Keep my email addresses private πριν κάνεις commits και χρησιμοποίησε το GitHub noreply email στο GitHub Desktop.
 
 ## 4. GitHub Desktop
 
 1. Κατέβασε το https://desktop.github.com/ και εγκατέστησέ το.
 2. File > Options > Accounts (Mac: GitHub Desktop > Settings > Accounts) > Sign in to GitHub.com. Ολοκλήρωσε τη σύνδεση στον browser.
-3. File > Add local repository και επίλεξε τον φάκελο `building-expense-manager`. Αν δεν είναι Git repository, επίλεξε τον σύνδεσμο δημιουργίας repository που προσφέρει η εφαρμογή. Εναλλακτικά, File > New repository, όνομα building-expense-manager, Local path ο **γονικός** φάκελος ώστε η τελική διαδρομή να είναι η ήδη υπάρχουσα ρίζα. Αν δεν δέχεται τον φάκελο, δημιούργησε νέο repo σε καθαρό γονικό φάκελο και αντέγραψε εκεί τα έτοιμα αρχεία, μαζί με τα κρυφά .gitignore, .gitattributes και .github. Μην δημιουργήσεις δεύτερο README/license/gitignore από το Desktop.
-4. Έλεγξε την καρτέλα Changes και τυχόν αρχικό commit στο History. Μην προχωρήσεις αν υπάρχει προσωπικό αρχείο ή λείπει κάποιο απαιτούμενο αρχείο.
-5. Αν υπάρχουν μη δεσμευμένες αλλαγές, βάλε Summary `Initial release: Building Expense Manager` και πάτησε Commit to main (μετονομασία branch σε main αν χρειάζεται).
-6. Publish repository: Name `building-expense-manager`, Description `Bilingual Python desktop app for monthly building expense allocation, debt tracking and Excel/PDF reporting.` Αρχικά κράτησε επιλεγμένο Keep this code private για τελικό έλεγχο. Organization: None. Publish repository. Ανέβηκε το repository στον λογαριασμό σου.
+3. Από το File > Add local repository επίλεξε τον υπάρχοντα φάκελο `building-expense-manager`.
+4. Έλεγξε τις αλλαγές στο Changes και τα commits στο History. Βεβαιώσου ότι υπάρχουν τα απαιτούμενα αρχεία και ότι δεν περιλαμβάνονται ιδιωτικά στοιχεία.
+5. Για πρώτη δημοσίευση από το Publish repository, χρησιμοποίησε το όνομα `building-expense-manager` και την περιγραφή `Bilingual Python desktop app for monthly building expense allocation, debt tracking and Excel/PDF reporting.` Κράτησε επιλεγμένο το Keep this code private όσο ελέγχεις τα αρχεία.
 
 ## 5. Έλεγχος στο GitHub και δημοσίευση
 
@@ -46,7 +47,7 @@ py -m venv .venv
 
 Στο repository άνοιξε Releases > Draft a new release (ή Create a new release), επίλεξε νέο tag `v1.0.0` στο main, τίτλο `Building Expense Manager v1.0.0` και περιγραφή των λειτουργιών και περιορισμών. Δημοσίευσε μόνο μετά τα επιτυχή tests. Δεν χρειάζεται να ανεβάσεις exe ή app αν δεν έχεις δοκιμάσει ξεχωριστά builds. Το GitHub παρέχει αυτόματα ZIP του source.
 
-Στο προφίλ, Customize your pins και επίλεξε το δημόσιο repository. Πρόσθεσε τον σύνδεσμο του στο LinkedIn Featured και στο CV. Μην δημιουργήσεις profile README τώρα (σύμφωνα με την επιλογή σου).
+Στο προφίλ, από το Customize your pins, μπορείς να καρφιτσώσεις το αποθετήριο. Πρόσθεσε τον σύνδεσμό του στο LinkedIn Featured και στο βιογραφικό σου.
 
 ## 7. Επόμενες αλλαγές
 

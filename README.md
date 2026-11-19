@@ -1,52 +1,43 @@
 # Building Expense Manager
 
-A bilingual Python desktop application that automates monthly common-expense allocation, payment tracking and financial reporting for a residential building with 15 apartment slots.
+A Python desktop app for managing monthly building expenses. It uses two Excel workbooks, supports up to 15 apartments and has a Greek and English interface.
 
 [Ελληνικά](README_GR.md) · [User guide](docs/USER_GUIDE_EN.md) · [Testing](docs/TESTING.md)
 
-## Problem and impact
+![Monthly common-expenses report for a fictional building](docs/screenshots/pdf-report.png)
 
-Monthly building management previously required repetitive manual work across Excel workbooks: recording payments, carrying forward balances, allocating expenses and preparing a report. This application consolidates these steps into a guided workflow.
+[Screenshots](docs/screenshots/README.md) · [Download the demo and follow the calculations](examples/sample-output/README.md)
 
-**Reported real-world processing time:** approximately 30–60 minutes manually, reduced to under 5 minutes using the application (developer's own operational estimate; not a controlled benchmark).
+## Why I built it
 
-## Features
+I used to record payments, carry balances forward, split expenses and prepare the monthly report by hand in Excel. That took me about 30–60 minutes a month. With the app, I usually finish in less than five minutes. These times are my own estimates from using it.
 
-- Greek and English graphical interface with a single application entry point.
-- Property and occupant records, including heating participation factors.
-- Monthly payment entry, debt carry-forward and credit balances.
-- Separate allocation of owner and tenant expenses.
-- Excel-based accounting and monthly PDF export.
-- Confirmed deletion of the latest monthly sheets and matching PDF.
-- Input validation and safeguards against incomplete monthly updates.
+## What it does
 
-## Technology
+- Splits owner and tenant expenses proportionally and allocates every cent. Heating uses weighted floor area.
+- Records actual payments and carries debts and credits into the next month.
+- Checks the charges against the expenses and reconciles the cash ledger before saving.
+- Creates monthly Excel sheets and can export a PDF. Deleting the latest month and its PDF requires confirmation.
 
-Python · Tkinter · openpyxl · xlwings · python-dateutil · Microsoft Excel
+## How the month is calculated
 
 ```mermaid
 flowchart LR
-    A[Desktop interface] --> B[Payment and expense processing]
-    B --> C[Common expenses workbook]
-    B --> D[Income and expenses ledger]
-    C --> E[Microsoft Excel]
-    E --> F[Monthly PDF]
+    A["Previous balances, payments and expenses"] --> B["Payment offsets and allocation in cents"]
+    B --> C["Reconcile charges and cash in Excel"]
+    C --> D["Save both monthly worksheets"]
+    D --> E["Export the report to PDF if requested"]
 ```
 
-## Screenshots
+Payments first offset debts and credits within each apartment. Cash goes to the tenant's debt first, then to the owner's. An overpayment becomes a tenant credit. The ledger records cash received, while the common-expenses workbook shows charges and outstanding balances.
 
-See the [screenshots gallery](docs/screenshots/README.md) for the application workflow and Excel report, and the [sample report folder](examples/sample-output/README.md) for an illustrative PDF.
+For each expense, the app calculates proportional shares using floor area, or floor area multiplied by a heating factor. It allocates whole cents first, then gives the remaining cents to the largest fractional remainders. In a tie, the earlier apartment row comes first. This is the Largest Remainder method. The app checks that the allocations add up to the expense and that opening cash plus receipts minus actual outflows equals closing cash.
 
-## Requirements
+In the demo, three apartments of 50, 75 and 100 m² split a €100 cleaning bill into **€22.22, €33.33 and €44.45**. February starts with €515 in cash. It receives €70 and pays €215 in expenses, so it closes with **€370**. The [full example](examples/sample-output/README.md) shows how a tenant credit offsets an owner's debt without creating a cash receipt.
 
-- Python 3.11 or newer recommended (use a version compatible with your installed dependencies).
-- Microsoft Excel desktop, installed and activated. Excel Online alone is not sufficient.
-- Tkinter and the packages in `requirements.txt`.
-- The two supplied blank XLSX templates, with their original cell layout and formulas.
+## Setup
 
-The developer reports successful manual testing of the final bilingual application on Windows 10 and macOS. Other operating system versions and packaged executables are not certified.
-
-## Quick start
+The app uses Python, Tkinter and openpyxl. It uses xlwings to recalculate and export through desktop Microsoft Excel and python-dateutil to advance the reporting month. Use Python 3.11 or later with compatible dependencies, Tkinter and an installed, activated copy of Excel. Keep the two blank XLSX templates and their sheet layouts intact.
 
 Download or clone the repository. In a terminal at its root:
 
@@ -66,7 +57,7 @@ python3 -m venv .venv
 .venv/bin/python main.py
 ```
 
-Before first use, copy the two blank files from `templates/` to a private working folder outside the repository. Keep their Greek filenames. Close those files in Excel, choose your language and select the working copies when prompted. The originals should remain unchanged.
+Before you start, copy both blank files from `templates/` to a private folder outside the repository. Keep their Greek filenames and close the copies in Excel. Choose your language and select the copies when the app asks for the workbooks.
 
 ## Monthly workflow
 
@@ -76,7 +67,7 @@ Before first use, copy the two blank files from `templates/` to a private workin
 4. Confirm the update and optionally generate the monthly PDF.
 5. Verify the report and ledger against the original records.
 
-Heating factors: `0` = exempt; `0.25` = 25% weighting; `1` or blank = full weighting. A factor is a relative allocation weight, not a fixed percentage of the final bill.
+Use `0` to exclude an apartment from heating. A factor of `0.25` gives it a quarter of its usual floor-area weight. Use `1` or leave the field blank for full weight.
 
 ## Testing
 
@@ -84,18 +75,17 @@ Heating factors: `0` = exempt; `0.25` = 25% weighting; `1` or blank = full weigh
 python -m unittest discover -s tests -v
 ```
 
-The automated suite checks the expected helper-function interface, numeric input, payment allocation, month creation, heating safeguards, deletion and workbook structure. GitHub Actions runs headless tests; it does not launch Excel or the GUI. See [TESTING.md](docs/TESTING.md) for scope and manual acceptance checks.
+The 47 regression tests cover payments, allocation, month creation, workbook validation and recovery. The presentation samples were generated and checked in desktop Excel 16.0 on Windows 10 with Python 3.15.2, using fictional inputs supplied to the app's monthly workflow. See [TESTING.md](docs/TESTING.md) for the CI matrix, earlier macOS checks and the remaining manual acceptance tests.
 
 ## Limitations and data safety
 
-- Designed for the supplied fixed 15-slot workbook structure; not general-purpose accounting software.
-- Desktop Excel is necessary for formula recalculation and PDF export. The interface is bilingual, but the supplied workbooks and generated reports use Greek labels.
-- Local file-based storage. Close working documents before updates; keep independent backups. Two-file updates cannot be guaranteed atomic during system crashes.
+- The app uses the supplied 15-slot workbook layout and the allocation rules of this building.
+- Desktop Excel recalculates formulas and exports PDFs. Workbooks and reports use Greek labels.
+- Files stay local. Close the working documents before an update and keep separate backups. An interruption can leave one workbook updated before the other.
 - Never commit live accounting documents, personal information or local settings. Use only blank templates and synthetic demonstration assets.
-- Allocation rules reflect this building's workflow, not universal legal or accounting rules.
 
 ## Author and license
 
-Developed by **Vasilios Valatsos**, with AI assistance at selected implementation stages.
+Vasilios Valatsos developed the app with AI assistance for parts of the implementation.
 
 The Python code is available under the [MIT License](LICENSE). The author has confirmed permission to distribute the blank workbook templates. See [ASSET_LICENSE.md](docs/ASSET_LICENSE.md) for accompanying assets.

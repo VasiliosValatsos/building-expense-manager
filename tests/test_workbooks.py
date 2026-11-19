@@ -34,7 +34,7 @@ class WorkbookTests(unittest.TestCase):
         original_formula = self.a[name]['I36'].value
         original_merges = set(self.a[name].merged_cells.ranges)
         original_cf = len(self.a[name].conditional_formatting)
-        new,_,_,common,ledger = main.create_month_sheets(self.a,self.b,name)
+        new,_,_,common,ledger = main.create_month_sheets(self.a,self.b,name,opening_cash=0)
         self.assertNotEqual(name,new)
         self.assertEqual(self.a[name]['I36'].value,original_formula)
         self.assertEqual(set(common.merged_cells.ranges),original_merges)
